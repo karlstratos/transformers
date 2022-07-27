@@ -239,6 +239,7 @@ def main():
     )
     logger.info(f"Training/evaluation parameters {training_args}")
 
+
     # Detecting last checkpoint.
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
@@ -266,11 +267,11 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    if data_args.dataset_name is not None:
+    if data_args.dataset_name is not None:  # Karl: wikitext
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
+            data_args.dataset_name,  # wikitext
+            data_args.dataset_config_name,  # wikitext-2-raw-v1
             cache_dir=model_args.cache_dir,
             use_auth_token=True if model_args.use_auth_token else None,
         )
@@ -347,7 +348,7 @@ def main():
     if model_args.config_name:
         config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
     elif model_args.model_name_or_path:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)  # Karl: "gpt2"
     else:
         config = CONFIG_MAPPING[model_args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
@@ -357,14 +358,14 @@ def main():
             logger.info(f"New config: {config}")
 
     tokenizer_kwargs = {
-        "cache_dir": model_args.cache_dir,
-        "use_fast": model_args.use_fast_tokenizer,
-        "revision": model_args.model_revision,
-        "use_auth_token": True if model_args.use_auth_token else None,
+        "cache_dir": model_args.cache_dir,  # None
+        "use_fast": model_args.use_fast_tokenizer,  # True
+        "revision": model_args.model_revision,  # main
+        "use_auth_token": True if model_args.use_auth_token else None,  # None
     }
-    if model_args.tokenizer_name:
+    if model_args.tokenizer_name:  # None
         tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
-    elif model_args.model_name_or_path:
+    elif model_args.model_name_or_path:  # Karl: this
         tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
     else:
         raise ValueError(
@@ -374,7 +375,7 @@ def main():
 
     if model_args.model_name_or_path:
         model = AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
+            model_args.model_name_or_path,  # "gpt2"
             from_tf=bool(".ckpt" in model_args.model_name_or_path),
             config=config,
             cache_dir=model_args.cache_dir,
@@ -386,7 +387,7 @@ def main():
         n_params = sum(dict((p.data_ptr(), p.numel()) for p in model.parameters()).values())
         logger.info(f"Training new model from scratch - Total size={n_params/2**20:.2f}M params")
 
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer))  # 50257
 
     # Preprocessing the datasets.
     # First we tokenize all the texts.
@@ -411,6 +412,7 @@ def main():
         return output
 
     with training_args.main_process_first(desc="dataset map tokenization"):
+        # https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments.main_process_first
         tokenized_datasets = raw_datasets.map(
             tokenize_function,
             batched=True,
@@ -419,9 +421,13 @@ def main():
             load_from_cache_file=not data_args.overwrite_cache,
             desc="Running tokenizer on dataset",
         )
+        #print(raw_datasets["train"]["text"][3])  #  "Senjō no Valkyria 3 : Unrecorded Chronicles ( Japanese : 戦場のヴァルキュリア3 , lit ..."
+        #print(len(raw_datasets["train"]["text"][3]))  # 706
+        #print(tokenized_datasets["train"]["input_ids"][3])  # [2311, 73, 13090, 645, 569, 18354, 7496, 513, 1058, 791, 47398, 17740, 357, 4960, 1058, 10545, ...]
+        #print(len(tokenized_datasets["train"]["input_ids"][3]))  # 166
 
     if data_args.block_size is None:
-        block_size = tokenizer.model_max_length
+        block_size = tokenizer.model_max_length  # 1024
         if block_size > 1024:
             logger.warning(
                 f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). "
@@ -450,6 +456,9 @@ def main():
             k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
             for k, t in concatenated_examples.items()
         }
+
+        # result['input_ids'] = [[...], [...], ..., [...]]
+        # result['attention_mask'] = [[...], [...], ..., [...]]  I think
         result["labels"] = result["input_ids"].copy()
         return result
 
@@ -468,6 +477,7 @@ def main():
             load_from_cache_file=not data_args.overwrite_cache,
             desc=f"Grouping texts in chunks of {block_size}",
         )
+        #print(len(lm_datasets['train']['input_ids'][0]))  # 1024
 
     if training_args.do_train:
         if "train" not in tokenized_datasets:
@@ -505,7 +515,7 @@ def main():
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
-        args=training_args,
+        args=training_args,  # adamw_hf, lr=5e-5, wd=0, be12=(.9, .999), ep=1e-8, gradnorm=1. epochs=3, lr_schedule=linear, warmup=0
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
